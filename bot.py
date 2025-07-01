@@ -8,7 +8,7 @@ bot = telebot.TeleBot(TOKEN)
 
 # Imagen y enlace del botón
 IMAGE_URL = 'https://i.postimg.cc/jqBbLNMd/photo-output.jpg'
-BOTON_URL = 'https://t.me/share/url?url=https://t.me/cubalmacenn'
+BOTON_URL = 'https://t.me/share/url?url=https://tinyurl.com/PUTASSCUBANAS'
 
 # Crear la botonera
 def crear_botonera():
