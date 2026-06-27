@@ -434,26 +434,6 @@ async def kick_user(chat_id: int, user_id: int) -> bool:
         await report(f"❌ Error expulsando {user_id} de {chat_name(chat_id)}: {e}")
         return False
 
-
-def dm_no_db(membership: str) -> str:
-    link = JOIN_REQUEST_LINKS.get(membership, "")
-    label = MEMBERSHIP_LABELS.get(membership, membership)
-    return (
-        "Hola. Tu acceso no aparece registrado correctamente en nuestro sistema.\n\n"
-        f"Para entrar correctamente a {label}, usa este enlace:\n{link}\n\n"
-        "Después de completar el proceso, vuelve a solicitar entrada al grupo."
-    )
-
-
-def dm_expired(membership: str) -> str:
-    link = JOIN_REQUEST_LINKS.get(membership, "")
-    label = MEMBERSHIP_LABELS.get(membership, membership)
-    return (
-        f"Hola. Tu membresía de {label} aparece vencida o cancelada en Stripe.\n\n"
-        f"Para recuperar el acceso, usa este enlace:\n{link}\n\n"
-        "Después de completar el pago correctamente, vuelve a solicitar entrada al grupo."
-    )
-
 # =========================
 # AUDITORIA
 # =========================
