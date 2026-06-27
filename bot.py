@@ -688,7 +688,17 @@ async def main():
     if missing:
         raise SystemExit("Faltan variables de entorno: " + ", ".join(missing))
 
-    await client.start(phone=TG_PHONE, password=TG_PASSWORD)
+    TG_CODE = os.getenv("TG_CODE") or None
+
+    await client.connect()
+
+    if not await client.is_user_authorized():
+        await client.send_code_request(TG_PHONE)
+        await client.sign_in(TG_PHONE, TG_CODE)
+
+        if TG_PASSWORD:
+            await client.sign_in(password=TG_PASSWORD)
+    
     await report("✅ Cuenta Telethon conectada correctamente.")
     await scheduler_loop()
 
