@@ -690,19 +690,18 @@ async def main():
 
     TG_CODE = os.getenv("TG_CODE")
 
-    await client.connect()
-
-    if not await client.is_user_authorized():
-        if TG_CODE:
-            await client.sign_in(TG_PHONE, TG_CODE)
-
-            if TG_PASSWORD:
-                await client.sign_in(password=TG_PASSWORD)
-        else:
-            await client.send_code_request(TG_PHONE)
+    def code_callback():
+        if not TG_CODE:
             raise RuntimeError(
-                "Código enviado a Telegram. Agrega la variable TG_CODE y reinicia el servicio."
+                "Falta TG_CODE. Agrega la variable TG_CODE en Render con el código de Telegram y reinicia."
             )
+        return TG_CODE
+
+    await client.start(
+        phone=TG_PHONE,
+        password=TG_PASSWORD,
+        code_callback=code_callback,
+    )
     
     await report("✅ Cuenta Telethon conectada correctamente.")
     await scheduler_loop()
