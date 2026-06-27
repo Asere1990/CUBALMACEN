@@ -437,6 +437,40 @@ async def kick_user(chat_id: int, user_id: int) -> bool:
 # =========================
 # AUDITORIA
 # =========================
+def get_all_row_emails(row: dict) -> List[str]:
+    found = []
+
+    main_email = (row.get("email") or "").strip().lower()
+    if main_email:
+        found.append(main_email)
+
+    extra = row.get("emails")
+
+    if isinstance(extra, list):
+        for item in extra:
+            if isinstance(item, str):
+                e = item.strip().lower()
+                if e:
+                    found.append(e)
+            elif isinstance(item, dict):
+                e = (item.get("email") or "").strip().lower()
+                if e:
+                    found.append(e)
+
+    elif isinstance(extra, dict):
+        for value in extra.values():
+            if isinstance(value, str):
+                e = value.strip().lower()
+                if "@" in e:
+                    found.append(e)
+            elif isinstance(value, list):
+                for item in value:
+                    if isinstance(item, str):
+                        e = item.strip().lower()
+                        if e:
+                            found.append(e)
+
+    return list(dict.fromkeys(found))
 
 async def process_user(chat_id: int, membership: str, user: User, self_id: int, counters: dict):
     protected, reason = await is_protected_member(chat_id, user, self_id)
@@ -452,7 +486,6 @@ async def process_user(chat_id: int, membership: str, user: User, self_id: int, 
         await report(f"❌ Error DB buscando {user.id}: {e}")
         return
 
-    # Regla: si no está en DB, expulsión inmediata sin enviar privado.
     if not row:
         kick_ok = await kick_user(chat_id, user.id)
         counters["kicked_no_db"] += 1 if kick_ok else 0
@@ -470,10 +503,9 @@ async def process_user(chat_id: int, membership: str, user: User, self_id: int, 
         await safe_sleep(PAUSE_BETWEEN_KICKS)
         return
 
-    email = (row.get("email") or "").strip().lower()
+    emails = get_all_row_emails(row)
 
-    if not email:
-        # Existe en DB, pero sin email: se trata como acceso inválido.
+    if not emails:
         kick_ok = await kick_user(chat_id, user.id)
         counters["kicked_no_email"] += 1 if kick_ok else 0
 
@@ -490,16 +522,43 @@ async def process_user(chat_id: int, membership: str, user: User, self_id: int, 
         return
 
     try:
-        stripe_data = await stripe_collect_subs(email)
+        merged_stripe_data = {
+            "statuses": {},
+            "active_cols": [],
+            "expires": {},
+            "cancel_at_period_end": {},
+            "customer_ids": [],
+        }
+
+        for email in emails:
+            data = await stripe_collect_subs(email)
+
+            for col, status in data.get("statuses", {}).items():
+                current = merged_stripe_data["statuses"].get(col)
+                if STATUS_PRIORITY.get(status, 0) > STATUS_PRIORITY.get(current, 0):
+                    merged_stripe_data["statuses"][col] = status
+
+            for col in data.get("active_cols", []):
+                if col not in merged_stripe_data["active_cols"]:
+                    merged_stripe_data["active_cols"].append(col)
+
+            merged_stripe_data["expires"].update(data.get("expires", {}))
+            merged_stripe_data["cancel_at_period_end"].update(data.get("cancel_at_period_end", {}))
+
+            for cid in data.get("customer_ids", []):
+                if cid not in merged_stripe_data["customer_ids"]:
+                    merged_stripe_data["customer_ids"].append(cid)
+
+        stripe_data = merged_stripe_data
         await sync_db_memberships_from_stripe(row, stripe_data)
+
     except Exception as e:
         counters["errors"] += 1
-        await report(f"❌ Error Stripe/Supabase para {email} / {user.id}: {e}")
+        await report(f"❌ Error Stripe/Supabase para {', '.join(emails)} / {user.id}: {e}")
         return
 
     active_cols = set(stripe_data.get("active_cols", []))
 
-    # Regla importante: si tiene ALGUNA suscripción activa para esa membresía, se queda.
     if membership in active_cols:
         counters["valid"] += 1
         return
@@ -513,7 +572,7 @@ async def process_user(chat_id: int, membership: str, user: User, self_id: int, 
         f"Membresía requerida: {MEMBERSHIP_LABELS.get(membership, membership)}\n"
         f"Usuario: {user_name(user)}\n"
         f"Telegram ID: {user.id}\n"
-        f"Email: {email}\n"
+        f"Emails revisados: {', '.join(emails)}\n"
         f"Activas en Stripe: {', '.join(active_cols) if active_cols else 'ninguna'}\n"
         "Privado enviado: desactivado\n"
         f"Expulsado: {'sí' if kick_ok else 'no'}"
