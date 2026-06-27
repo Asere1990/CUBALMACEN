@@ -63,6 +63,7 @@ PAUSE_EVERY_20_KICKS = float(os.getenv("PAUSE_EVERY_20_KICKS", "180"))
 
 # Si esta en 1, NO expulsa. Solo reporta lo que haria.
 DRY_RUN = os.getenv("DRY_RUN", "0") == "1"
+STRIPE_MATCH_SECONDS = int(os.getenv("STRIPE_MATCH_SECONDS", "60"))
 
 # =========================
 # MEMBRESIAS / STRIPE
@@ -471,6 +472,163 @@ def get_all_row_emails(row: dict) -> List[str]:
                             found.append(e)
 
     return list(dict.fromkeys(found))
+
+def parse_db_datetime(row: dict) -> Optional[datetime]:
+    fecha = (row.get("fecha") or "").strip()
+    hora = (row.get("hora") or "").strip()
+
+    if not fecha or not hora:
+        return None
+
+    try:
+        return datetime.strptime(f"{fecha} {hora}", "%Y-%m-%d %H:%M:%S").replace(tzinfo=TIMEZONE)
+    except Exception:
+        return None
+
+
+def get_candidate_memberships_from_row(row: dict) -> List[str]:
+    found = []
+
+    for col in MEMBERSHIP_COLUMNS:
+        status = (row.get(col) or "").strip()
+        if status in ("Activa", "Vencida"):
+            found.append(col)
+
+    return found
+
+
+def add_email_to_emails_json(row: dict, email: str):
+    current = row.get("emails")
+    email = (email or "").strip().lower()
+
+    if not email:
+        return current
+
+    emails = []
+
+    if isinstance(current, list):
+        emails = current
+    elif isinstance(current, dict):
+        emails = current.get("emails") or []
+    elif current is None:
+        emails = []
+
+    normalized = set()
+
+    for item in emails:
+        if isinstance(item, str):
+            normalized.add(item.strip().lower())
+        elif isinstance(item, dict):
+            e = (item.get("email") or "").strip().lower()
+            if e:
+                normalized.add(e)
+
+    normalized.add(email)
+
+    return sorted(normalized)
+
+
+def _stripe_find_invoice_matches_sync(target_dt: datetime, memberships: List[str]) -> List[dict]:
+    matches = []
+
+    start_ts = int((target_dt - timedelta(seconds=STRIPE_MATCH_SECONDS)).timestamp())
+    end_ts = int((target_dt + timedelta(seconds=STRIPE_MATCH_SECONDS)).timestamp())
+
+    invoices = stripe.Invoice.list(
+        limit=100,
+        created={"gte": start_ts, "lte": end_ts},
+        expand=["data.customer", "data.lines.data.price"],
+    )
+
+    for inv in invoices.data:
+        inv_dt = datetime.fromtimestamp(inv.created, tz=TIMEZONE)
+
+        if inv_dt.strftime("%Y-%m-%d %H:%M") != target_dt.strftime("%Y-%m-%d %H:%M"):
+            continue
+
+        diff = abs((inv_dt - target_dt).total_seconds())
+        if diff > STRIPE_MATCH_SECONDS:
+            continue
+
+        found_membership = None
+
+        for line in inv.lines.data:
+            price = getattr(line, "price", None)
+            price_id = getattr(price, "id", None) if price else None
+            m = PRICE_TO_MEMBERSHIP.get(price_id)
+
+            if m in memberships:
+                found_membership = m
+                break
+
+        if not found_membership:
+            continue
+
+        customer = inv.customer
+        email = getattr(customer, "email", None)
+        stripe_name = getattr(customer, "name", None)
+        stripe_id = getattr(customer, "id", None)
+
+        if not email or not stripe_id:
+            continue
+
+        matches.append({
+            "email": email.strip().lower(),
+            "stripe_name": stripe_name,
+            "stripe_id": stripe_id,
+            "membership": found_membership,
+            "invoice_id": inv.id,
+            "created": inv.created,
+            "diff": diff,
+        })
+
+    return matches
+
+
+async def find_stripe_match_by_db_time(row: dict, user_id: int) -> Optional[dict]:
+    target_dt = parse_db_datetime(row)
+    if not target_dt:
+        return None
+
+    memberships = get_candidate_memberships_from_row(row)
+    if not memberships:
+        return None
+
+    matches = await asyncio.to_thread(_stripe_find_invoice_matches_sync, target_dt, memberships)
+
+    if len(matches) == 1:
+        return matches[0]
+
+    if len(matches) > 1:
+        await report(
+            "⚠️ Coincidencia ambigua Stripe/DB\n"
+            f"Telegram ID: {user_id}\n"
+            f"Fecha/Hora DB: {target_dt.strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"Membresías candidatas: {', '.join(memberships)}\n"
+            f"Coincidencias Stripe: {len(matches)}\n"
+            "Acción: no se actualizó ni se expulsó por esta reparación."
+        )
+
+    return None
+
+
+async def repair_row_from_stripe_match(row: dict, match: dict):
+    email = match["email"]
+    updates = {}
+
+    if not row.get("email"):
+        updates["email"] = email
+
+    if match.get("stripe_name") and not row.get("stripe_name"):
+        updates["stripe_name"] = match["stripe_name"]
+
+    if match.get("stripe_id") and not row.get("stripe_id"):
+        updates["stripe_id"] = match["stripe_id"]
+
+    updates["emails"] = add_email_to_emails_json(row, email)
+    updates[match["membership"]] = "Activa"
+
+    await supabase_update_by_id(row["id"], updates)
 
 async def process_user(chat_id: int, membership: str, user: User, self_id: int, counters: dict):
     protected, reason = await is_protected_member(chat_id, user, self_id)
