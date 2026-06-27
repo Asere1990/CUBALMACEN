@@ -664,20 +664,39 @@ async def process_user(chat_id: int, membership: str, user: User, self_id: int, 
     emails = get_all_row_emails(row)
 
     if not emails:
-        kick_ok = await kick_user(chat_id, user.id)
-        counters["kicked_no_email"] += 1 if kick_ok else 0
+        match = await find_stripe_match_by_db_time(row, user.id)
 
-        await report(
-            "🚫 Usuario en DB pero sin email\n"
-            f"Grupo: {chat_name(chat_id)}\n"
-            f"Usuario: {user_name(user)}\n"
-            f"Telegram ID: {user.id}\n"
-            "Privado enviado: desactivado\n"
-            f"Expulsado: {'sí' if kick_ok else 'no'}"
-        )
+        if match:
+            await repair_row_from_stripe_match(row, match)
 
-        await safe_sleep(PAUSE_BETWEEN_KICKS)
-        return
+            emails = [match["email"]]
+            row["email"] = match["email"]
+            row["emails"] = add_email_to_emails_json(row, match["email"])
+
+            await report(
+                "✅ Usuario reparado usando fecha/hora DB + Stripe\n"
+                f"Grupo: {chat_name(chat_id)}\n"
+                f"Usuario: {user_name(user)}\n"
+                f"Telegram ID: {user.id}\n"
+                f"Email encontrado: {match['email']}\n"
+                f"Membresía detectada: {match['membership']}"
+            )
+        else:
+            kick_ok = await kick_user(chat_id, user.id)
+            counters["kicked_no_email"] += 1 if kick_ok else 0
+
+            await report(
+                "🚫 Usuario en DB pero sin email\n"
+                f"Grupo: {chat_name(chat_id)}\n"
+                f"Usuario: {user_name(user)}\n"
+                f"Telegram ID: {user.id}\n"
+                "Reparación por fecha/hora: no encontrada\n"
+                "Privado enviado: desactivado\n"
+                f"Expulsado: {'sí' if kick_ok else 'no'}"
+            )
+
+            await safe_sleep(PAUSE_BETWEEN_KICKS)
+            return
 
     try:
         merged_stripe_data = {
