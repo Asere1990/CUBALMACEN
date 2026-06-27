@@ -493,37 +493,40 @@ async def process_user(chat_id: int, membership: str, user: User, self_id: int, 
         await report(f"❌ Error DB buscando {user.id}: {e}")
         return
 
-    # Regla: si no esta en DB, DM + expulsion inmediata.
+    # Regla: si no está en DB, expulsión inmediata sin enviar privado.
     if not row:
-        dm_ok = await send_private_message(user, dm_no_db(membership))
         kick_ok = await kick_user(chat_id, user.id)
         counters["kicked_no_db"] += 1 if kick_ok else 0
+
         await report(
             "🚫 Usuario fuera de DB\n"
             f"Grupo: {chat_name(chat_id)}\n"
             f"Membresía requerida: {MEMBERSHIP_LABELS.get(membership, membership)}\n"
             f"Usuario: {user_name(user)}\n"
             f"Telegram ID: {user.id}\n"
-            f"Privado enviado: {'sí' if dm_ok else 'no'}\n"
+            "Privado enviado: desactivado\n"
             f"Expulsado: {'sí' if kick_ok else 'no'}"
         )
+
         await safe_sleep(PAUSE_BETWEEN_KICKS)
         return
 
     email = (row.get("email") or "").strip().lower()
+
     if not email:
-        # Existe en DB, pero sin email: lo tratamos como acceso invalido.
-        dm_ok = await send_private_message(user, dm_no_db(membership))
+        # Existe en DB, pero sin email: se trata como acceso inválido.
         kick_ok = await kick_user(chat_id, user.id)
         counters["kicked_no_email"] += 1 if kick_ok else 0
+
         await report(
             "🚫 Usuario en DB pero sin email\n"
             f"Grupo: {chat_name(chat_id)}\n"
             f"Usuario: {user_name(user)}\n"
             f"Telegram ID: {user.id}\n"
-            f"Privado enviado: {'sí' if dm_ok else 'no'}\n"
+            "Privado enviado: desactivado\n"
             f"Expulsado: {'sí' if kick_ok else 'no'}"
         )
+
         await safe_sleep(PAUSE_BETWEEN_KICKS)
         return
 
@@ -537,14 +540,14 @@ async def process_user(chat_id: int, membership: str, user: User, self_id: int, 
 
     active_cols = set(stripe_data.get("active_cols", []))
 
-    # Regla importante: si tiene ALGUNA suscripcion activa para esa membresia, se queda.
+    # Regla importante: si tiene ALGUNA suscripción activa para esa membresía, se queda.
     if membership in active_cols:
         counters["valid"] += 1
         return
 
-    dm_ok = await send_private_message(user, dm_expired(membership))
     kick_ok = await kick_user(chat_id, user.id)
     counters["kicked_expired"] += 1 if kick_ok else 0
+
     await report(
         "🚫 Membresía vencida/cancelada en Stripe\n"
         f"Grupo: {chat_name(chat_id)}\n"
@@ -553,11 +556,11 @@ async def process_user(chat_id: int, membership: str, user: User, self_id: int, 
         f"Telegram ID: {user.id}\n"
         f"Email: {email}\n"
         f"Activas en Stripe: {', '.join(active_cols) if active_cols else 'ninguna'}\n"
-        f"Privado enviado: {'sí' if dm_ok else 'no'}\n"
+        "Privado enviado: desactivado\n"
         f"Expulsado: {'sí' if kick_ok else 'no'}"
     )
-    await safe_sleep(PAUSE_BETWEEN_KICKS)
 
+    await safe_sleep(PAUSE_BETWEEN_KICKS)
 
 async def audit_group(chat_id: int, membership: str, self_id: int) -> dict:
     counters = {
