@@ -412,27 +412,6 @@ async def is_protected_member(chat_id: int, user: User, self_id: int) -> Tuple[b
 
     return False, ""
 
-
-async def send_private_message(user: User, text: str) -> bool:
-    try:
-        await client.send_message(user.id, text)
-        return True
-    except (UserPrivacyRestrictedError, ChatWriteForbiddenError):
-        return False
-    except FloodWaitError as e:
-        await report(f"⏳ FloodWait enviando privado: dormir {e.seconds}s")
-        await asyncio.sleep(e.seconds)
-        try:
-            await client.send_message(user.id, text)
-            return True
-        except Exception:
-            return False
-    except RPCError:
-        return False
-    except Exception:
-        return False
-
-
 async def kick_user(chat_id: int, user_id: int) -> bool:
     if DRY_RUN:
         return True
