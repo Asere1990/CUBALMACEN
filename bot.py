@@ -665,6 +665,8 @@ async def main():
         code_callback=code_callback,
     )
     
+    await client.get_dialogs()
+    
     await report("✅ Cuenta Telethon conectada correctamente.")
     await scheduler_loop()
 
