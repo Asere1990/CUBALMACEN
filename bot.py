@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Set, Tuple
 import httpx
 import stripe
 from telethon import TelegramClient
-from telethon.errors import FloodWaitError, UserPrivacyRestrictedError, ChatWriteForbiddenError, RPCError
+from telethon.errors import FloodWaitError
 from telethon.tl.functions.channels import GetParticipantRequest, EditBannedRequest
 from telethon.tl.types import (
     ChannelParticipantAdmin,
