@@ -688,16 +688,21 @@ async def main():
     if missing:
         raise SystemExit("Faltan variables de entorno: " + ", ".join(missing))
 
-    TG_CODE = os.getenv("TG_CODE") or None
+    TG_CODE = os.getenv("TG_CODE")
 
     await client.connect()
 
     if not await client.is_user_authorized():
-        await client.send_code_request(TG_PHONE)
-        await client.sign_in(TG_PHONE, TG_CODE)
+        if TG_CODE:
+            await client.sign_in(TG_PHONE, TG_CODE)
 
-        if TG_PASSWORD:
-            await client.sign_in(password=TG_PASSWORD)
+            if TG_PASSWORD:
+                await client.sign_in(password=TG_PASSWORD)
+        else:
+            await client.send_code_request(TG_PHONE)
+            raise RuntimeError(
+                "Código enviado a Telegram. Agrega la variable TG_CODE y reinicia el servicio."
+            )
     
     await report("✅ Cuenta Telethon conectada correctamente.")
     await scheduler_loop()
