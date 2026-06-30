@@ -751,6 +751,12 @@ async def audit_database():
                 else:
                     missing_email += 1
 
+                    await report(
+                        "⚠️ No fue posible reparar el registro\n"
+                        f"Telegram ID: {telegram_id}\n"
+                        "Motivo: no se encontró una coincidencia válida en Stripe usando fecha/hora."
+                    )
+
             # -----------------------------
             # CASO 2: Tiene email
             # -----------------------------
@@ -772,11 +778,23 @@ async def audit_database():
         except Exception as e:
             errors += 1
 
-            await report(
-                "❌ Error auditando DB\n"
-                f"ID: {row.get('id')}\n"
-                f"Error: {e}"
-            )
+            text = str(e)
+
+            if "Coincidencia ambigua" in text:
+                ambiguous += 1
+
+                await report(
+                    "⚠️ Coincidencia ambigua\n"
+                    f"ID DB: {row.get('id')}\n"
+                    f"Telegram ID: {row.get('telegram_id')}"
+                )
+            else:
+                await report(
+                    "❌ Error auditando DB\n"
+                    f"ID DB: {row.get('id')}\n"
+                    f"Telegram ID: {row.get('telegram_id')}\n"
+                    f"Error: {e}"
+                )
 
     await report(
         "🏁 Auditoría DB finalizada\n"
@@ -784,6 +802,7 @@ async def audit_database():
         f"Sincronizados: {synced}\n"
         f"Sin email: {missing_email}\n"
         f"Sin Telegram ID: {missing_telegram}\n"
+        f"Coincidencias ambiguas: {ambiguous}\n"
         f"Errores: {errors}"
     )
 
