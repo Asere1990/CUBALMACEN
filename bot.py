@@ -616,12 +616,13 @@ def add_email_to_emails_json(row: dict, email: str):
 
     return sorted(normalized)
 
-
 def _stripe_find_invoice_matches_sync(target_dt: datetime, memberships: List[str]) -> List[dict]:
     matches = []
 
+    # Stripe siempre ocurre primero y DB/Telegram después.
+    # Buscamos solo pagos/facturas creadas desde 60s antes hasta la hora exacta de la DB.
     start_ts = int((target_dt - timedelta(seconds=STRIPE_MATCH_SECONDS)).timestamp())
-    end_ts = int((target_dt + timedelta(seconds=STRIPE_MATCH_SECONDS)).timestamp())
+    end_ts = int(target_dt.timestamp())
 
     invoices = stripe.Invoice.list(
         limit=100,
@@ -632,10 +633,14 @@ def _stripe_find_invoice_matches_sync(target_dt: datetime, memberships: List[str
     for inv in invoices.data:
         inv_dt = datetime.fromtimestamp(inv.created, tz=TIMEZONE)
 
-        if inv_dt.strftime("%Y-%m-%d %H:%M") != target_dt.strftime("%Y-%m-%d %H:%M"):
+        # Diferencia positiva: DB ocurrió después que Stripe.
+        diff = (target_dt - inv_dt).total_seconds()
+
+        # Rechazar si Stripe ocurrió después de la DB.
+        if diff < 0:
             continue
 
-        diff = abs((inv_dt - target_dt).total_seconds())
+        # Rechazar si Stripe ocurrió más de 60s antes de la DB.
         if diff > STRIPE_MATCH_SECONDS:
             continue
 
