@@ -270,6 +270,45 @@ async def supabase_select(filters: dict, select: str = "*") -> List[dict]:
         resp.raise_for_status()
         return resp.json()
 
+async def supabase_select_all(select: str = "*", page_size: int = 1000) -> List[dict]:
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise RuntimeError("Faltan SUPABASE_URL o SUPABASE_KEY")
+
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Accept": "application/json",
+    }
+
+    url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/{SUPABASE_TABLE}"
+
+    rows = []
+    offset = 0
+
+    async with httpx.AsyncClient(timeout=60) as http:
+        while True:
+            params = {
+                "select": select,
+                "limit": str(page_size),
+                "offset": str(offset),
+            }
+
+            resp = await http.get(url, params=params, headers=headers)
+            resp.raise_for_status()
+
+            batch = resp.json()
+
+            if not batch:
+                break
+
+            rows.extend(batch)
+
+            if len(batch) < page_size:
+                break
+
+            offset += page_size
+
+    return rows
 
 async def supabase_update_by_id(row_id: int, updates: dict):
     if not SUPABASE_URL or not SUPABASE_KEY:
