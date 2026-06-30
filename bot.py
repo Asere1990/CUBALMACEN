@@ -439,24 +439,33 @@ async def stripe_collect_subs(email: str) -> dict:
     stripe_cache[key] = data
     return data
 
-
 async def sync_db_memberships_from_stripe(row: dict, stripe_data: dict):
     updates = {}
     today, hour = now_txt()
+
     statuses = stripe_data.get("statuses", {})
     expires = stripe_data.get("expires", {})
     customer_ids = stripe_data.get("customer_ids", [])
 
     for col in MEMBERSHIP_COLUMNS:
+        current_db_status = (row.get(col) or "").strip()
+
         if col in statuses:
             new_status = statuses[col]
             updates[col] = new_status
+
             if new_status == "Activa":
                 updates[f"{col}_cancel"] = None
             else:
                 updates[f"{col}_cancel"] = today
+
             if col in expires:
                 updates[f"{col}_expire"] = expires[col]
+
+        else:
+            if current_db_status in ("Activa", "Vencida"):
+                updates[col] = "Vencida"
+                updates[f"{col}_cancel"] = today
 
     if customer_ids and not row.get("stripe_id"):
         updates["stripe_id"] = customer_ids[0]
