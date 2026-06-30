@@ -338,6 +338,47 @@ async def get_db_row_by_telegram_id(telegram_id: int) -> Optional[dict]:
     rows = await supabase_select({"telegram_id": str(telegram_id)})
     return rows[0] if rows else None
 
+async def get_db_row_by_id(row_id: int) -> Optional[dict]:
+    rows = await supabase_select({"id": str(row_id)})
+    return rows[0] if rows else None
+
+
+async def sync_all_memberships_from_email(row: dict):
+    emails = get_all_row_emails(row)
+
+    if not emails:
+        return
+
+    merged = {
+        "statuses": {},
+        "active_cols": [],
+        "expires": {},
+        "cancel_at_period_end": {},
+        "customer_ids": [],
+    }
+
+    for email in emails:
+        data = await stripe_collect_subs(email)
+
+        for col, status in data.get("statuses", {}).items():
+            current = merged["statuses"].get(col)
+
+            if STATUS_PRIORITY.get(status, 0) > STATUS_PRIORITY.get(current, 0):
+                merged["statuses"][col] = status
+
+        for col in data.get("active_cols", []):
+            if col not in merged["active_cols"]:
+                merged["active_cols"].append(col)
+
+        merged["expires"].update(data.get("expires", {}))
+        merged["cancel_at_period_end"].update(data.get("cancel_at_period_end", {}))
+
+        for cid in data.get("customer_ids", []):
+            if cid not in merged["customer_ids"]:
+                merged["customer_ids"].append(cid)
+
+    await sync_db_memberships_from_stripe(row, merged)
+
 # =========================
 # STRIPE
 # =========================
