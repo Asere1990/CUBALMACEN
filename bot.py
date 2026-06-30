@@ -664,32 +664,32 @@ def _stripe_find_invoice_matches_sync(target_dt: datetime, memberships: List[str
 
     return matches
 
-
 async def find_stripe_match_by_db_time(row: dict, user_id: int) -> Optional[dict]:
     target_dt = parse_db_datetime(row)
+
     if not target_dt:
         return None
 
     memberships = get_candidate_memberships_from_row(row)
+
     if not memberships:
         return None
 
-    matches = await asyncio.to_thread(_stripe_find_invoice_matches_sync, target_dt, memberships)
+    matches = await asyncio.to_thread(
+        _stripe_find_invoice_matches_sync,
+        target_dt,
+        memberships,
+    )
+
+    if len(matches) == 0:
+        return None
 
     if len(matches) == 1:
         return matches[0]
 
-    if len(matches) > 1:
-        await report(
-            "⚠️ Coincidencia ambigua Stripe/DB\n"
-            f"Telegram ID: {user_id}\n"
-            f"Fecha/Hora DB: {target_dt.strftime('%Y-%m-%d %H:%M:%S')}\n"
-            f"Membresías candidatas: {', '.join(memberships)}\n"
-            f"Coincidencias Stripe: {len(matches)}\n"
-            "Acción: no se actualizó ni se expulsó por esta reparación."
-        )
-
-    return None
+    raise RuntimeError(
+        "Coincidencia ambigua entre Stripe y la base de datos."
+    )
 
 async def repair_row_from_stripe_match(row: dict, match: dict):
     email = match["email"]
