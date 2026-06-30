@@ -710,6 +710,85 @@ async def repair_row_from_stripe_match(row: dict, match: dict):
 
     await supabase_update_by_id(row["id"], updates)
 
+async def audit_database():
+    await report("🗄️ Iniciando auditoría completa de la base de datos...")
+
+    rows = await supabase_select_all()
+
+    repaired = 0
+    synced = 0
+    missing_email = 0
+    missing_telegram = 0
+    ambiguous = 0
+    errors = 0
+
+    for row in rows:
+        try:
+            telegram_id = row.get("telegram_id")
+            emails = get_all_row_emails(row)
+
+            # -----------------------------
+            # CASO 1: Tiene Telegram ID pero no tiene email
+            # -----------------------------
+            if telegram_id and not emails:
+
+                match = await find_stripe_match_by_db_time(row, int(telegram_id))
+
+                if match:
+                    await repair_row_from_stripe_match(row, match)
+
+                    row = await get_db_row_by_id(row["id"])
+
+                    if row:
+                        await sync_all_memberships_from_email(row)
+
+                    repaired += 1
+
+                    await report(
+                        "✅ DB reparada\n"
+                        f"Telegram ID: {telegram_id}\n"
+                        f"Email: {match['email']}"
+                    )
+
+                else:
+                    missing_email += 1
+
+            # -----------------------------
+            # CASO 2: Tiene email
+            # -----------------------------
+            elif emails:
+
+                await sync_all_memberships_from_email(row)
+                synced += 1
+
+                if not telegram_id:
+                    missing_telegram += 1
+
+                    await report(
+                        "📧 Email sin Telegram ID\n"
+                        f"Emails: {', '.join(emails)}"
+                    )
+
+            await safe_sleep(0.2)
+
+        except Exception as e:
+            errors += 1
+
+            await report(
+                "❌ Error auditando DB\n"
+                f"ID: {row.get('id')}\n"
+                f"Error: {e}"
+            )
+
+    await report(
+        "🏁 Auditoría DB finalizada\n"
+        f"Reparados: {repaired}\n"
+        f"Sincronizados: {synced}\n"
+        f"Sin email: {missing_email}\n"
+        f"Sin Telegram ID: {missing_telegram}\n"
+        f"Errores: {errors}"
+    )
+
 async def process_user(chat_id: int, membership: str, user: User, self_id: int, counters: dict):
     protected, reason = await is_protected_member(chat_id, user, self_id)
     if protected:
