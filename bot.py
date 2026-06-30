@@ -744,8 +744,10 @@ async def audit_database():
 
                     await report(
                         "✅ DB reparada\n"
+                        f"ID DB: {row.get('id') if row else 'desconocido'}\n"
                         f"Telegram ID: {telegram_id}\n"
-                        f"Email: {match['email']}"
+                        f"Email: {match['email']}\n"
+                        "Acción: email reparado y membresías sincronizadas con Stripe."
                     )
 
                 else:
@@ -753,6 +755,7 @@ async def audit_database():
 
                     await report(
                         "⚠️ No fue posible reparar el registro\n"
+                        f"ID DB: {row.get('id')}\n"
                         f"Telegram ID: {telegram_id}\n"
                         "Motivo: no se encontró una coincidencia válida en Stripe usando fecha/hora."
                     )
@@ -768,9 +771,18 @@ async def audit_database():
                 if not telegram_id:
                     missing_telegram += 1
 
+                    active_text = []
+                    for col in MEMBERSHIP_COLUMNS:
+                        status = (row.get(col) or "").strip()
+                        if status in ("Activa", "Vencida"):
+                            active_text.append(f"{col}: {status}")
+
                     await report(
                         "📧 Email sin Telegram ID\n"
-                        f"Emails: {', '.join(emails)}"
+                        f"ID DB: {row.get('id')}\n"
+                        f"Emails: {', '.join(emails)}\n"
+                        f"Membresías DB: {', '.join(active_text) if active_text else 'ninguna registrada'}\n"
+                        "Acción: membresías sincronizadas con Stripe, pero falta asociar Telegram ID."
                     )
 
             await safe_sleep(0.2)
@@ -786,7 +798,8 @@ async def audit_database():
                 await report(
                     "⚠️ Coincidencia ambigua\n"
                     f"ID DB: {row.get('id')}\n"
-                    f"Telegram ID: {row.get('telegram_id')}"
+                    f"Telegram ID: {row.get('telegram_id')}\n"
+                    "Acción: no se actualizó el email porque Stripe devolvió más de una posible coincidencia."
                 )
             else:
                 await report(
