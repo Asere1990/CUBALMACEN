@@ -691,7 +691,6 @@ async def find_stripe_match_by_db_time(row: dict, user_id: int) -> Optional[dict
 
     return None
 
-
 async def repair_row_from_stripe_match(row: dict, match: dict):
     email = match["email"]
     updates = {}
@@ -706,7 +705,6 @@ async def repair_row_from_stripe_match(row: dict, match: dict):
         updates["stripe_id"] = match["stripe_id"]
 
     updates["emails"] = add_email_to_emails_json(row, email)
-    updates[match["membership"]] = "Activa"
 
     await supabase_update_by_id(row["id"], updates)
 
