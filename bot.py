@@ -973,9 +973,14 @@ async def audit_group(chat_id: int, membership: str, self_id: int) -> dict:
     )
     return counters
 
-
 async def audit_all_groups():
     global stripe_cache
+    stripe_cache = {}
+
+    # Primero audita y repara toda la base de datos.
+    await audit_database()
+
+    # Limpia nuevamente el cache para comenzar la auditoría de grupos.
     stripe_cache = {}
 
     me = await client.get_me()
@@ -1001,11 +1006,14 @@ async def audit_all_groups():
 
     for chat_id, membership in CHAT_TO_MEMBERSHIP.items():
         c = await audit_group(chat_id, membership, self_id)
+
         for k in totals:
             totals[k] += c.get(k, 0)
+
         await safe_sleep(PAUSE_BETWEEN_GROUPS)
 
     fin_fecha, fin_hora = now_txt()
+
     await report(
         "🏁 Auditoría completa\n"
         f"Fecha fin: {fin_fecha} {fin_hora}\n"
@@ -1017,7 +1025,6 @@ async def audit_all_groups():
         f"Expulsados vencidos: {totals['kicked_expired']}\n"
         f"Errores: {totals['errors']}"
     )
-
 
 async def scheduler_loop():
     if RUN_ON_START:
