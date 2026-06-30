@@ -834,7 +834,6 @@ async def process_user(chat_id: int, membership: str, user: User, self_id: int, 
         counters["protected"] += 1
         return
 
-    row = None
     try:
         row = await get_db_row_by_telegram_id(user.id)
     except Exception as e:
@@ -862,14 +861,36 @@ async def process_user(chat_id: int, membership: str, user: User, self_id: int, 
     emails = get_all_row_emails(row)
 
     if not emails:
-        match = await find_stripe_match_by_db_time(row, user.id)
+        try:
+            match = await find_stripe_match_by_db_time(row, user.id)
+        except Exception as e:
+            if "Coincidencia ambigua" in str(e):
+                counters["errors"] += 1
+
+                await report(
+                    "⚠️ Usuario en DB sin email pero coincidencia ambigua\n"
+                    f"Grupo: {chat_name(chat_id)}\n"
+                    f"Usuario: {user_name(user)}\n"
+                    f"Telegram ID: {user.id}\n"
+                    "Acción: no se reparó ni se expulsó automáticamente."
+                )
+                return
+
+            counters["errors"] += 1
+            await report(
+                "❌ Error reparando usuario sin email\n"
+                f"Grupo: {chat_name(chat_id)}\n"
+                f"Usuario: {user_name(user)}\n"
+                f"Telegram ID: {user.id}\n"
+                f"Error: {e}"
+            )
+            return
 
         if match:
             await repair_row_from_stripe_match(row, match)
 
-            emails = [match["email"]]
-            row["email"] = match["email"]
-            row["emails"] = add_email_to_emails_json(row, match["email"])
+            row = await get_db_row_by_id(row["id"])
+            emails = get_all_row_emails(row) if row else [match["email"]]
 
             await report(
                 "✅ Usuario reparado usando fecha/hora DB + Stripe\n"
@@ -877,7 +898,7 @@ async def process_user(chat_id: int, membership: str, user: User, self_id: int, 
                 f"Usuario: {user_name(user)}\n"
                 f"Telegram ID: {user.id}\n"
                 f"Email encontrado: {match['email']}\n"
-                f"Membresía detectada: {match['membership']}"
+                "Acción: email reparado; ahora se revisará Stripe para validar membresía."
             )
         else:
             kick_ok = await kick_user(chat_id, user.id)
@@ -897,6 +918,8 @@ async def process_user(chat_id: int, membership: str, user: User, self_id: int, 
             return
 
     try:
+        await sync_all_memberships_from_email(row)
+
         merged_stripe_data = {
             "statuses": {},
             "active_cols": [],
@@ -925,7 +948,6 @@ async def process_user(chat_id: int, membership: str, user: User, self_id: int, 
                     merged_stripe_data["customer_ids"].append(cid)
 
         stripe_data = merged_stripe_data
-        await sync_db_memberships_from_stripe(row, stripe_data)
 
     except Exception as e:
         counters["errors"] += 1
